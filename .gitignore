@@ -1,12 +1,12 @@
-# Byte-compiled / optimized / DLL files
+# --- Byte-compiled / optimized / DLL files ---
 __pycache__/
 *.py[cod]
 *$py.class
 
-# C extensions
+# --- C extensions ---
 *.so
 
-# Distribution / packaging
+# --- Distribution / packaging ---
 .Python
 build/
 develop-eggs/
@@ -24,38 +24,40 @@ wheels/
 .installed.cfg
 *.egg
 
-# PyCharm / IDE
+# --- PyCharm / IDE ---
 .idea/
 .vscode/
 
-# --- Large Files & Datasets (Excluded for Backup) ---
+# --- Datasets (CRITICAL: ALL DATA EXCLUDED) ---
 LPW/
 LPW.zip
 Swirski_Dataset/
+Pupils_in_the_wild_improved/
 datasets/
 models_transunet/
 wandb/
-*.pth
-*.ckpt
-*.h5
-*.avi
-*.db
-*.log
-nohup.out
-
-# Results & Overlays (Optional, but usually large)
+Swirski_overlays_*/
 LPW_results_*/
 LPW_plots_*/
 LPW_tables/
-Swirski_overlays_*/
 Swirski_plots_*/
 Swirski_tables/
 Swirski_test_*/
 runs_eval/
-result_*.avi
-train/
-train/
-datasets/
-models_transunet/
+
+# --- Large Binaries & Media ---
 *.pth
+*.pt
+*.ckpt
+*.h5
+*.avi
+*.mp4
+*.db
+*.log
 *.png
+*.jpg
+*.jpeg
+*.npy
+*.npz
+nohup.out
+result_*.avi
