@@ -121,8 +121,8 @@ def ellipse_postprocess(pred_mask, pupil_id=3, min_points=5):
             continue
         area = cv2.contourArea(cnt)
         
-        # 조건 1: 가장 큰 조각 대비 면적이 5% 미만이면 노이즈
-        if area < largest_area * 0.05:
+        # 조건 1: 가장 큰 조각 대비 면적이 10% 미만이면 노이즈 (Grid Search 최적화 결과 반영)
+        if area < largest_area * 0.10:
             continue
             
         # 조건 2: 거리가 너무 멀면 노이즈 (224 이미지 기준 반경 50픽셀 이내만 허용)
@@ -141,9 +141,19 @@ def ellipse_postprocess(pred_mask, pupil_id=3, min_points=5):
         return pred_mask
         
     ellipse = cv2.fitEllipse(all_points)
+    
+    # 타원의 크기가 비정상(음수나 0)인 경우 기하학적 오류 방지
+    if ellipse[1][0] <= 0 or ellipse[1][1] <= 0:
+        return pred_mask
+        
     result = pred_mask.copy()
     result[result == pupil_id] = 0
-    cv2.ellipse(result, ellipse, pupil_id, -1)
+    try:
+        cv2.ellipse(result, ellipse, pupil_id, -1)
+    except cv2.error as e:
+        # 드문 확률로 collinear points 등에서 발생하는 내부 에러 방어
+        return pred_mask
+        
     return result
 
 def build_gt_mapping(gt_dir, target_folder=None):
@@ -165,115 +175,152 @@ def main():
     parser.add_argument('--ellipse', action='store_true')
     parser.add_argument('--preprocess', action='store_true')
     parser.add_argument('--folder', type=int, default=1, help='LPW folder number to evaluate')
+    parser.add_argument('--all_folders', action='store_true', help='Evaluate all folders (1-22)')
     args = parser.parse_args()
 
-    suffix = f"f{args.folder}_sig{args.sigma}_s2{args.sigma2}_ell{'O' if args.ellipse else 'X'}_pre{'O' if args.preprocess else 'X'}"
-    csv_path = TABLE_DIR / f"lpw_skipfilter_{suffix}.csv"
+    folder_list = list(range(1, 23)) if args.all_folders else [args.folder]
+    suffix = f"f{'ALL' if args.all_folders else args.folder}_sig{args.sigma}_s2{args.sigma2}_ell{'O' if args.ellipse else 'X'}_pre{'O' if args.preprocess else 'X'}"
+    
+    frame_csv_path = TABLE_DIR / f"lpw_skipfilter_{suffix}_frames.csv"
+    compact_csv_path = TABLE_DIR / f"lpw_skipfilter_{suffix}_compact.csv"
     overlay_dir = OVERLAY_DIR / suffix
 
     TABLE_DIR.mkdir(parents=True, exist_ok=True)
     overlay_dir.mkdir(parents=True, exist_ok=True)
 
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    print(f"LPW Folder {args.folder} 평가 (sigma={args.sigma}, sigma2={args.sigma2}, ellipse={args.ellipse}, preprocess={args.preprocess})")
+    print(f"LPW 평가 시작 (Folders: {'1-22' if args.all_folders else args.folder}, sigma={args.sigma}, ellipse={args.ellipse})")
 
     model = get_model(device, args.sigma, args.sigma2)
-    gt_mapping = build_gt_mapping(GT_BASE_DIR, target_folder=args.folder)
-    print(f"GT 비디오: {len(gt_mapping)}개")
+    
+    # GT는 전체 폴더에 대해 매핑 (target_folder 지정 안함)
+    gt_mapping = build_gt_mapping(GT_BASE_DIR, target_folder=None)
+    print(f"로드된 GT 비디오 총 개수: {len(gt_mapping)}개")
 
-    folder_dir = RAW_BASE_DIR / str(args.folder)
-    raw_videos = list(folder_dir.glob("1.avi")) if folder_dir.exists() else []
-    print(f"원본 비디오: {len(raw_videos)}개")
+    total_iou_all, total_dice_all = [], []
+    video_summaries = []
 
-    with open(csv_path, mode='w', newline='') as csv_file:
-        csv_writer = csv.writer(csv_file)
-        csv_writer.writerow(['Video', 'Frame', 'IoU', 'Dice'])
-        total_iou, total_dice = [], []
+    with open(frame_csv_path, mode='w', newline='') as f_csv, open(compact_csv_path, mode='w', newline='') as c_csv:
+        frame_writer = csv.writer(f_csv)
+        frame_writer.writerow(['Folder', 'Video', 'Frame', 'IoU', 'Dice'])
+        
+        compact_writer = csv.writer(c_csv)
+        compact_writer.writerow(['Folder', 'Video', 'mIoU', 'mDice'])
 
         with torch.no_grad():
-            for raw_path in sorted(raw_videos):
-                file_idx = int(raw_path.stem)
-                key = f"{args.folder}_{file_idx}"
-                if key not in gt_mapping:
-                    print(f"  GT 없음: {raw_path.name}")
+            for folder_idx in folder_list:
+                folder_dir = RAW_BASE_DIR / str(folder_idx)
+                raw_videos = list(folder_dir.glob("*.avi")) if folder_dir.exists() else []
+                
+                if not raw_videos:
+                    print(f"[{folder_idx}] 원본 비디오를 찾을 수 없습니다. 건너뜁니다.")
                     continue
-                gt_path = gt_mapping[key]
-                vid_overlay = overlay_dir / raw_path.stem
-                vid_overlay.mkdir(parents=True, exist_ok=True)
-
-                cap_raw = cv2.VideoCapture(str(raw_path))
-                cap_gt = cv2.VideoCapture(str(gt_path))
+                    
+                folder_iou, folder_dice = [], []
                 
-                # 비디오 속성 가져오기
-                fps = cap_raw.get(cv2.CAP_PROP_FPS)
-                if fps == 0 or np.isnan(fps): fps = 30.0
-                width  = int(cap_raw.get(cv2.CAP_PROP_FRAME_WIDTH))
-                height = int(cap_raw.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                
-                # VideoWriter 초기화 (XVID 코덱 사용, .avi 포맷)
-                out_vid_path = overlay_dir / f"{raw_path.stem}.avi"
-                fourcc = cv2.VideoWriter_fourcc(*'XVID')
-                out_vid = cv2.VideoWriter(str(out_vid_path), fourcc, fps, (width, height))
+                for raw_path in sorted(raw_videos):
+                    if raw_path.name.startswith("._"):
+                        continue
+                    try:
+                        file_idx = int(raw_path.stem)
+                    except ValueError:
+                        print(f"  [Folder {folder_idx}] 비정상적인 파일 이름 건너뜀: {raw_path.name}")
+                        continue
+                        
+                    key = f"{folder_idx}_{file_idx}"
+                    
+                    if key not in gt_mapping:
+                        print(f"  [Folder {folder_idx}] GT 없음 건너뜀: {raw_path.name}")
+                        continue
+                        
+                    gt_path = gt_mapping[key]
+                    
+                    vid_overlay_dir = overlay_dir / str(folder_idx)
+                    vid_overlay_dir.mkdir(parents=True, exist_ok=True)
 
-                frame_idx = 0
-                vid_iou, vid_dice = [], []
+                    cap_raw = cv2.VideoCapture(str(raw_path))
+                    cap_gt = cv2.VideoCapture(str(gt_path))
+                    
+                    fps = cap_raw.get(cv2.CAP_PROP_FPS)
+                    if fps == 0 or np.isnan(fps): fps = 30.0
+                    width  = int(cap_raw.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    height = int(cap_raw.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    
+                    out_vid_path = vid_overlay_dir / f"{raw_path.stem}.avi"
+                    fourcc = cv2.VideoWriter_fourcc(*'XVID')
+                    out_vid = cv2.VideoWriter(str(out_vid_path), fourcc, fps, (width, height))
 
-                while True:
-                    ret_r, frame_r = cap_raw.read()
-                    ret_g, frame_g = cap_gt.read()
-                    if not (ret_r and ret_g):
-                        break
+                    frame_idx = 0
+                    vid_iou, vid_dice = [], []
 
-                    h, w = frame_r.shape[:2]
-                    gray = cv2.cvtColor(frame_r, cv2.COLOR_BGR2GRAY) if len(frame_r.shape) == 3 else frame_r
+                    while True:
+                        ret_r, frame_r = cap_raw.read()
+                        ret_g, frame_g = cap_gt.read()
+                        if not (ret_r and ret_g):
+                            break
 
-                    img_for_model = gray
-                    if args.preprocess:
-                        img_for_model = ritnet_preprocess(gray)
+                        h, w = frame_r.shape[:2]
+                        gray = cv2.cvtColor(frame_r, cv2.COLOR_BGR2GRAY) if len(frame_r.shape) == 3 else frame_r
 
-                    rgb = cv2.cvtColor(img_for_model, cv2.COLOR_GRAY2RGB)
-                    resized = cv2.resize(rgb, (IMG_SIZE, IMG_SIZE))
-                    tensor = torch.from_numpy(resized).float().permute(2, 0, 1).unsqueeze(0) / 255.0
-                    tensor = tensor.to(device)
+                        img_for_model = gray
+                        if args.preprocess:
+                            img_for_model = ritnet_preprocess(gray)
 
-                    logits = model(tensor)
-                    pred = logits.argmax(1).squeeze(0).cpu().numpy().astype(np.uint8)
+                        rgb = cv2.cvtColor(img_for_model, cv2.COLOR_GRAY2RGB)
+                        resized = cv2.resize(rgb, (IMG_SIZE, IMG_SIZE))
+                        tensor = torch.from_numpy(resized).float().permute(2, 0, 1).unsqueeze(0) / 255.0
+                        tensor = tensor.to(device)
 
-                    if args.ellipse:
-                        pred = ellipse_postprocess(pred, PUPIL_CLASS_ID)
+                        logits = model(tensor)
+                        pred = logits.argmax(1).squeeze(0).cpu().numpy().astype(np.uint8)
 
-                    pred_full = cv2.resize(pred, (w, h), interpolation=cv2.INTER_NEAREST)
+                        if args.ellipse:
+                            pred = ellipse_postprocess(pred, PUPIL_CLASS_ID)
 
-                    gray_gt = cv2.cvtColor(frame_g, cv2.COLOR_BGR2GRAY) if len(frame_g.shape) == 3 else frame_g
-                    gray_gt = cv2.resize(gray_gt, (w, h), interpolation=cv2.INTER_NEAREST)
-                    _, gt_bin = cv2.threshold(gray_gt, 127, 255, cv2.THRESH_BINARY)
+                        pred_full = cv2.resize(pred, (w, h), interpolation=cv2.INTER_NEAREST)
 
-                    iou, dice = calc_metrics(pred_full, gt_bin, PUPIL_CLASS_ID)
-                    vid_iou.append(iou)
-                    vid_dice.append(dice)
-                    csv_writer.writerow([raw_path.stem, frame_idx, f"{iou:.4f}", f"{dice:.4f}"])
+                        gray_gt = cv2.cvtColor(frame_g, cv2.COLOR_BGR2GRAY) if len(frame_g.shape) == 3 else frame_g
+                        gray_gt = cv2.resize(gray_gt, (w, h), interpolation=cv2.INTER_NEAREST)
+                        _, gt_bin = cv2.threshold(gray_gt, 127, 255, cv2.THRESH_BINARY)
 
-                    # 결과 프레임을 비디오에 쓰기
-                    img_bgr = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
-                    ov = img_bgr.copy()
-                    ov[pred_full == PUPIL_CLASS_ID] = [0, 0, 255]
-                    cv2.addWeighted(ov, 0.5, img_bgr, 0.5, 0, img_bgr)
-                    out_vid.write(img_bgr)
+                        iou, dice = calc_metrics(pred_full, gt_bin, PUPIL_CLASS_ID)
+                        vid_iou.append(iou)
+                        vid_dice.append(dice)
+                        frame_writer.writerow([folder_idx, raw_path.stem, frame_idx, f"{iou:.4f}", f"{dice:.4f}"])
 
-                    frame_idx += 1
+                        img_bgr = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+                        ov = img_bgr.copy()
+                        ov[pred_full == PUPIL_CLASS_ID] = [0, 0, 255]
+                        cv2.addWeighted(ov, 0.5, img_bgr, 0.5, 0, img_bgr)
+                        out_vid.write(img_bgr)
 
-                cap_raw.release()
-                cap_gt.release()
-                out_vid.release()
+                        frame_idx += 1
 
-                if vid_iou:
-                    m = np.mean(vid_iou)
-                    print(f"  [{raw_path.stem}.avi] mIoU={m:.4f} mDice={np.mean(vid_dice):.4f} ({len(vid_iou)} frames)")
-                    total_iou.extend(vid_iou)
-                    total_dice.extend(vid_dice)
+                    cap_raw.release()
+                    cap_gt.release()
+                    out_vid.release()
 
-        if total_iou:
-            print(f"\n[Folder {args.folder} Total] mIoU={np.mean(total_iou):.4f} mDice={np.mean(total_dice):.4f}")
+                    if vid_iou:
+                        m_iou = np.mean(vid_iou)
+                        m_dice = np.mean(vid_dice)
+                        print(f"  [Folder {folder_idx} | {raw_path.stem}.avi] mIoU={m_iou:.4f} mDice={m_dice:.4f} ({len(vid_iou)} frames)")
+                        folder_iou.extend(vid_iou)
+                        folder_dice.extend(vid_dice)
+                        total_iou_all.extend(vid_iou)
+                        total_dice_all.extend(vid_dice)
+                        compact_writer.writerow([folder_idx, raw_path.stem, f"{m_iou:.4f}", f"{m_dice:.4f}"])
+                        
+                if folder_iou:
+                    fm_iou = np.mean(folder_iou)
+                    fm_dice = np.mean(folder_dice)
+                    print(f"[Folder {folder_idx} Total] mIoU={fm_iou:.4f} mDice={fm_dice:.4f}")
+                    compact_writer.writerow([folder_idx, 'FOLDER_TOTAL', f"{fm_iou:.4f}", f"{fm_dice:.4f}"])
+                    
+        if total_iou_all:
+            tm_iou = np.mean(total_iou_all)
+            tm_dice = np.mean(total_dice_all)
+            print(f"\n[All Folders Total] mIoU={tm_iou:.4f} mDice={tm_dice:.4f}")
+            compact_writer.writerow(['ALL', 'TOTAL', f"{tm_iou:.4f}", f"{tm_dice:.4f}"])
 
 if __name__ == '__main__':
     main()

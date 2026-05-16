@@ -127,8 +127,8 @@ def ellipse_postprocess(pred_mask, pupil_id=3, min_points=5):
             continue
         area = cv2.contourArea(cnt)
         
-        # 조건 1: 가장 큰 조각 대비 면적이 5% 미만이면 노이즈
-        if area < largest_area * 0.05:
+        # 조건 1: 가장 큰 조각 대비 면적이 10% 미만이면 노이즈 (Grid Search 최적화 결과 반영)
+        if area < largest_area * 0.10:
             continue
             
         # 조건 2: 거리가 너무 멀면 노이즈 (224 이미지 기준 반경 50픽셀 이내만 허용)
@@ -147,9 +147,18 @@ def ellipse_postprocess(pred_mask, pupil_id=3, min_points=5):
         return pred_mask
         
     ellipse = cv2.fitEllipse(all_points)
+    
+    # 타원의 크기가 비정상(음수나 0)인 경우 기하학적 오류 방지
+    if ellipse[1][0] <= 0 or ellipse[1][1] <= 0:
+        return pred_mask
+        
     result = pred_mask.copy()
     result[result == pupil_id] = 0
-    cv2.ellipse(result, ellipse, pupil_id, -1)
+    try:
+        cv2.ellipse(result, ellipse, pupil_id, -1)
+    except cv2.error as e:
+        return pred_mask
+        
     return result
 
 def _make_blur(sigma):
@@ -210,8 +219,8 @@ def main():
     parser.add_argument('--preprocess', action='store_true', help='Apply RITnet preprocessing (Gamma 0.8 + CLAHE)')
     args = parser.parse_args()
 
-    # 결과물 구분을 위한 네이밍
-    suffix = f"sig{args.sigma}_s2{args.sigma2}_ell{'O' if args.ellipse else 'X'}_pre{'O' if args.preprocess else 'X'}"
+    # 결과물 구분을 위한 네이밍 (최적화 파라미터 반영 태그 추가)
+    suffix = f"sig{args.sigma}_s2{args.sigma2}_ell{'O' if args.ellipse else 'X'}_pre{'O' if args.preprocess else 'X'}_opt0.10"
     csv_path = TABLE_DIR / f"transunet_swirski_skipfilter_{suffix}.csv"
     cur_overlay_dir = OVERLAY_DIR / suffix
     
