@@ -36,7 +36,7 @@ FAST-TransUNet addresses this via two complementary, training-free modules:
 ```mermaid
 %%{init: {'theme': 'neutral'}}%%
 flowchart TD
-    Input([Input Image 224x224]) --> Encoder[CNN Encoder ResNet-50]
+    Input([Input Image 224x224]):::io --> Encoder[CNN Encoder ResNet-50]
 
     Encoder -->|"Skip 0: 112x112"| SF0[Skip Filter σ=1.0]:::highlight
     Encoder -->|"Skip 1: 56x56"| SF1[Skip Filter σ=0.5]:::highlight
@@ -51,9 +51,10 @@ flowchart TD
 
     Decoder --> Pred[Raw Prediction Mask]
     Pred --> Post[Hybrid Ellipse Post-processing]:::highlight
-    Post --> Final([Final Pupil Ellipse])
+    Post --> Final([Final Pupil Ellipse]):::io
 
-    classDef highlight stroke:#3b82f6,stroke-width:2px,stroke-dasharray: 5 5
+    classDef highlight fill:#e0f2fe,stroke:#0284c7,stroke-width:2px,color:#0c4a6e
+    classDef io fill:#f1f5f9,stroke:#64748b,stroke-width:1px,color:#0f172a
 ```
 
 ### Why Skip Connections, Not the Transformer?
