@@ -34,34 +34,26 @@ FAST-TransUNet addresses this via two complementary, training-free modules:
 ## 🏗️ Architecture
 
 ```mermaid
-%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#1e293b", "lineColor": "#94a3b8"}}}%%
+%%{init: {'theme': 'neutral'}}%%
 flowchart TD
-    Input(["🖼️ Input Image\n224 × 224"]):::input --> Encoder["🧠 CNN Encoder\nResNet-50"]:::encoder
+    Input([Input Image 224x224]) --> Encoder[CNN Encoder ResNet-50]
 
-    Encoder -->|"Skip 0 · 112×112"| SF0["🔵 Skip Filter\nσ = 1.0"]:::skipfilter
-    Encoder -->|"Skip 1 · 56×56"| SF1["🔵 Skip Filter\nσ = 0.5"]:::skipfilter
-    Encoder -->|"Skip 2 · 28×28"| Pass["⬜ Passthrough\nNo Filter"]:::passthrough
+    Encoder -->|"Skip 0: 112x112"| SF0[Skip Filter σ=1.0]:::highlight
+    Encoder -->|"Skip 1: 56x56"| SF1[Skip Filter σ=0.5]:::highlight
+    Encoder -->|"Skip 2: 28x28"| Pass[Passthrough No Filter]
 
-    Encoder -->|"Bottleneck"| ViT["⚡ Vision Transformer\n12-Layer ViT-B/16"]:::vit
-    ViT --> Decoder["🔶 Cascaded UNet\nDecoder (CUP)"]:::decoder
+    Encoder -->|"Bottleneck"| ViT[Vision Transformer ViT-B/16]
+    ViT --> Decoder[Cascaded UNet Decoder]
 
     SF0 -->|"Filtered"| Decoder
     SF1 -->|"Filtered"| Decoder
     Pass --> Decoder
 
-    Decoder --> Pred["Raw Mask"]:::pred
-    Pred --> Post["🟣 Hybrid Ellipse\nPost-processing"]:::postprocess
-    Post --> Final(["✅ Final Pupil\nEllipse"]):::final
+    Decoder --> Pred[Raw Prediction Mask]
+    Pred --> Post[Hybrid Ellipse Post-processing]:::highlight
+    Post --> Final([Final Pupil Ellipse])
 
-    classDef input fill:#0f766e,stroke:#99f6e4,stroke-width:2px,color:#fff
-    classDef encoder fill:#1e40af,stroke:#93c5fd,stroke-width:2px,color:#fff
-    classDef skipfilter fill:#7c3aed,stroke:#c4b5fd,stroke-width:2px,color:#fff
-    classDef passthrough fill:#475569,stroke:#94a3b8,stroke-width:2px,color:#fff
-    classDef vit fill:#b45309,stroke:#fcd34d,stroke-width:2px,color:#fff
-    classDef decoder fill:#c2410c,stroke:#fed7aa,stroke-width:2px,color:#fff
-    classDef pred fill:#374151,stroke:#9ca3af,stroke-width:1px,color:#d1d5db
-    classDef postprocess fill:#7e22ce,stroke:#d8b4fe,stroke-width:2px,color:#fff
-    classDef final fill:#15803d,stroke:#86efac,stroke-width:2px,color:#fff
+    classDef highlight stroke:#3b82f6,stroke-width:2px,stroke-dasharray: 5 5
 ```
 
 ### Why Skip Connections, Not the Transformer?
