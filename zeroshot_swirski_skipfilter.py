@@ -103,8 +103,8 @@ def extract_frame_idx(filename):
 def ellipse_postprocess(pred_mask, pupil_id=3, min_points=5):
     binary = (pred_mask == pupil_id).astype(np.uint8)
     
-    # 1. 형태학적 닫기 (속눈썹으로 인한 얇은 분절 연결)
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
+    # 1. 형태학적 닫기 (속눈썹으로 인한 얇은 분절 연결) - 최적 커널 크기 13 적용
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (13, 13))
     closed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
     
     contours, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -168,19 +168,16 @@ def _make_blur(sigma):
     return k_size
 
 def patched_decoder_forward(self, hidden_states, features=None):
-    sigma01 = getattr(self, 'filter_sigma', 0.0)
-    sigma2 = getattr(self, 'filter_sigma2', 0.0)
+    sigma0 = getattr(self, 'filter_sigma0', 1.0)
+    sigma1 = getattr(self, 'filter_sigma1', 0.5)
     if features is not None:
         features = list(features)
-        if sigma01 > 0:
-            k = _make_blur(sigma01)
-            if len(features) > 0:
-                features[0] = TF.gaussian_blur(features[0], kernel_size=[k, k], sigma=[sigma01, sigma01])
-            if len(features) > 1:
-                features[1] = TF.gaussian_blur(features[1], kernel_size=[k, k], sigma=[sigma01, sigma01])
-        if sigma2 > 0 and len(features) > 2:
-            k2 = _make_blur(sigma2)
-            features[2] = TF.gaussian_blur(features[2], kernel_size=[k2, k2], sigma=[sigma2, sigma2])
+        if sigma0 > 0 and len(features) > 0:
+            k0 = _make_blur(sigma0)
+            features[0] = TF.gaussian_blur(features[0], kernel_size=[k0, k0], sigma=[sigma0, sigma0])
+        if sigma1 > 0 and len(features) > 1:
+            k1 = _make_blur(sigma1)
+            features[1] = TF.gaussian_blur(features[1], kernel_size=[k1, k1], sigma=[sigma1, sigma1])
 
     B, n_patch, hidden = hidden_states.size()
     h, w = int(np.sqrt(n_patch)), int(np.sqrt(n_patch))
@@ -192,7 +189,7 @@ def patched_decoder_forward(self, hidden_states, features=None):
         x = decoder_block(x, skip=skip)
     return x
 
-def get_transunet_model(device, sigma, sigma2=0.0):
+def get_transunet_model(device, sigma0=1.0, sigma1=0.5):
     config_vit = CONFIGS_ViT_seg['R50-ViT-B_16']
     config_vit.n_classes = NUM_CLASSES
     config_vit.n_skip = 3
@@ -203,8 +200,8 @@ def get_transunet_model(device, sigma, sigma2=0.0):
     model.load_state_dict(torch.load(WEIGHTS_PATH, map_location=device))
     
     # 런타임 몽키패치
-    model.decoder.filter_sigma = sigma
-    model.decoder.filter_sigma2 = sigma2
+    model.decoder.filter_sigma0 = sigma0
+    model.decoder.filter_sigma1 = sigma1
     model.decoder.forward = types.MethodType(patched_decoder_forward, model.decoder)
     
     model.to(device)
@@ -213,14 +210,14 @@ def get_transunet_model(device, sigma, sigma2=0.0):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--sigma', type=float, default=0.0, help='Sigma for Gaussian Blur on Skip 0 & 1')
-    parser.add_argument('--sigma2', type=float, default=0.0, help='Sigma for Gaussian Blur on Skip 2 (112x112)')
+    parser.add_argument('--sigma0', type=float, default=1.0, help='Sigma for Skip 0')
+    parser.add_argument('--sigma1', type=float, default=0.5, help='Sigma for Skip 1')
     parser.add_argument('--ellipse', action='store_true', help='Enable Ellipse fitting post-processing')
     parser.add_argument('--preprocess', action='store_true', help='Apply RITnet preprocessing (Gamma 0.8 + CLAHE)')
     args = parser.parse_args()
 
     # 결과물 구분을 위한 네이밍 (최적화 파라미터 반영 태그 추가)
-    suffix = f"sig{args.sigma}_s2{args.sigma2}_ell{'O' if args.ellipse else 'X'}_pre{'O' if args.preprocess else 'X'}_opt0.10"
+    suffix = f"s0_{args.sigma0}_s1_{args.sigma1}_ell{'O' if args.ellipse else 'X'}_pre{'O' if args.preprocess else 'X'}_opt_final"
     csv_path = TABLE_DIR / f"transunet_swirski_skipfilter_{suffix}.csv"
     cur_overlay_dir = OVERLAY_DIR / suffix
     
@@ -228,9 +225,9 @@ def main():
     cur_overlay_dir.mkdir(parents=True, exist_ok=True)
 
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    print(f"TransUNet 가동 (sigma={args.sigma}, ellipse={args.ellipse})")
+    print(f"TransUNet 가동 (s0={args.sigma0}, s1={args.sigma1}, ellipse={args.ellipse})")
 
-    model = get_transunet_model(device, args.sigma, args.sigma2)
+    model = get_transunet_model(device, args.sigma0, args.sigma1)
     case_dirs = [d for d in BASE_DIR.iterdir() if d.is_dir() and 'p' in d.name]
 
     with open(csv_path, mode='w', newline='') as csv_file:

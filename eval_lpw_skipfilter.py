@@ -13,8 +13,6 @@ from pathlib import Path
 import torchvision.transforms.functional as TF
 import argparse
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-
 from networks.vit_seg_modeling import VisionTransformer
 from networks.vit_seg_modeling import CONFIGS as CONFIGS_ViT_seg
 
@@ -55,19 +53,16 @@ def _make_blur(sigma):
     return k_size
 
 def patched_decoder_forward(self, hidden_states, features=None):
-    sigma01 = getattr(self, 'filter_sigma', 0.0)
-    sigma2 = getattr(self, 'filter_sigma2', 0.0)
+    sigma0 = getattr(self, 'filter_sigma0', 1.0)
+    sigma1 = getattr(self, 'filter_sigma1', 0.5)
     if features is not None:
         features = list(features)
-        if sigma01 > 0:
-            k = _make_blur(sigma01)
-            if len(features) > 0:
-                features[0] = TF.gaussian_blur(features[0], kernel_size=[k, k], sigma=[sigma01, sigma01])
-            if len(features) > 1:
-                features[1] = TF.gaussian_blur(features[1], kernel_size=[k, k], sigma=[sigma01, sigma01])
-        if sigma2 > 0 and len(features) > 2:
-            k2 = _make_blur(sigma2)
-            features[2] = TF.gaussian_blur(features[2], kernel_size=[k2, k2], sigma=[sigma2, sigma2])
+        if sigma0 > 0 and len(features) > 0:
+            k0 = _make_blur(sigma0)
+            features[0] = TF.gaussian_blur(features[0], kernel_size=[k0, k0], sigma=[sigma0, sigma0])
+        if sigma1 > 0 and len(features) > 1:
+            k1 = _make_blur(sigma1)
+            features[1] = TF.gaussian_blur(features[1], kernel_size=[k1, k1], sigma=[sigma1, sigma1])
 
     B, n_patch, hidden = hidden_states.size()
     h, w = int(np.sqrt(n_patch)), int(np.sqrt(n_patch))
@@ -79,7 +74,7 @@ def patched_decoder_forward(self, hidden_states, features=None):
         x = decoder_block(x, skip=skip)
     return x
 
-def get_model(device, sigma, sigma2=0.0):
+def get_model(device, sigma0=1.0, sigma1=0.5):
     config_vit = CONFIGS_ViT_seg['R50-ViT-B_16']
     config_vit.n_classes = NUM_CLASSES
     config_vit.n_skip = 3
@@ -87,8 +82,8 @@ def get_model(device, sigma, sigma2=0.0):
         config_vit.patches.grid = (int(IMG_SIZE / 16), int(IMG_SIZE / 16))
     model = VisionTransformer(config_vit, img_size=IMG_SIZE, num_classes=NUM_CLASSES)
     model.load_state_dict(torch.load(WEIGHTS_PATH, map_location=device))
-    model.decoder.filter_sigma = sigma
-    model.decoder.filter_sigma2 = sigma2
+    model.decoder.filter_sigma0 = sigma0
+    model.decoder.filter_sigma1 = sigma1
     model.decoder.forward = types.MethodType(patched_decoder_forward, model.decoder)
     model.to(device)
     model.eval()
@@ -97,8 +92,8 @@ def get_model(device, sigma, sigma2=0.0):
 def ellipse_postprocess(pred_mask, pupil_id=3, min_points=5):
     binary = (pred_mask == pupil_id).astype(np.uint8)
     
-    # 1. 형태학적 닫기 (속눈썹으로 인한 얇은 분절 연결)
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
+    # 1. 형태학적 닫기 (속눈썹으로 인한 얇은 분절 연결) - 최적 커널 크기 13 적용
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (13, 13))
     closed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
     
     contours, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -170,16 +165,17 @@ def build_gt_mapping(gt_dir, target_folder=None):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--sigma', type=float, default=0.0)
-    parser.add_argument('--sigma2', type=float, default=0.0)
+    parser.add_argument('--sigma0', type=float, default=1.0, help='Sigma for Skip 0')
+    parser.add_argument('--sigma1', type=float, default=0.5, help='Sigma for Skip 1')
     parser.add_argument('--ellipse', action='store_true')
     parser.add_argument('--preprocess', action='store_true')
     parser.add_argument('--folder', type=int, default=1, help='LPW folder number to evaluate')
     parser.add_argument('--all_folders', action='store_true', help='Evaluate all folders (1-22)')
+    parser.add_argument('--dry_run', action='store_true', help='Dry run to test 10 frames only')
     args = parser.parse_args()
 
     folder_list = list(range(1, 23)) if args.all_folders else [args.folder]
-    suffix = f"f{'ALL' if args.all_folders else args.folder}_sig{args.sigma}_s2{args.sigma2}_ell{'O' if args.ellipse else 'X'}_pre{'O' if args.preprocess else 'X'}"
+    suffix = f"f{'ALL' if args.all_folders else args.folder}_s0_{args.sigma0}_s1_{args.sigma1}_ell{'O' if args.ellipse else 'X'}_pre{'O' if args.preprocess else 'X'}"
     
     frame_csv_path = TABLE_DIR / f"lpw_skipfilter_{suffix}_frames.csv"
     compact_csv_path = TABLE_DIR / f"lpw_skipfilter_{suffix}_compact.csv"
@@ -189,9 +185,9 @@ def main():
     overlay_dir.mkdir(parents=True, exist_ok=True)
 
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    print(f"LPW 평가 시작 (Folders: {'1-22' if args.all_folders else args.folder}, sigma={args.sigma}, ellipse={args.ellipse})")
+    print(f"LPW 평가 시작 (Folders: {'1-22' if args.all_folders else args.folder}, s0={args.sigma0}, s1={args.sigma1}, ellipse={args.ellipse})")
 
-    model = get_model(device, args.sigma, args.sigma2)
+    model = get_model(device, args.sigma0, args.sigma1)
     
     # GT는 전체 폴더에 대해 매핑 (target_folder 지정 안함)
     gt_mapping = build_gt_mapping(GT_BASE_DIR, target_folder=None)
@@ -293,12 +289,24 @@ def main():
                         ov[pred_full == PUPIL_CLASS_ID] = [0, 0, 255]
                         cv2.addWeighted(ov, 0.5, img_bgr, 0.5, 0, img_bgr)
                         out_vid.write(img_bgr)
+                        
+                        # PNG 프레임 저장 (추후 논문 삽입용)
+                        png_dir = vid_overlay_dir / f"{raw_path.stem}_frames"
+                        png_dir.mkdir(parents=True, exist_ok=True)
+                        cv2.imwrite(str(png_dir / f"frame_{frame_idx:04d}.png"), img_bgr)
 
                         frame_idx += 1
+                        
+                        if args.dry_run and frame_idx >= 10:
+                            break
 
                     cap_raw.release()
                     cap_gt.release()
                     out_vid.release()
+                    
+                    if args.dry_run:
+                        print("Dry run completed successfully.")
+                        return
 
                     if vid_iou:
                         m_iou = np.mean(vid_iou)
