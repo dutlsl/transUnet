@@ -1,6 +1,6 @@
 """
-LPW folder-1 전용 Skip Filter 평가 스크립트.
-zeroshot_eval_LPW.py를 기반으로 Skip Filter + RITnet 전처리를 추가.
+LPW dataset Skip Filter evaluation script.
+Based on zeroshot_eval_LPW.py with Skip Filter + RITnet preprocessing added.
 """
 import os
 import cv2
@@ -92,7 +92,7 @@ def get_model(device, sigma0=1.0, sigma1=0.5):
 def ellipse_postprocess(pred_mask, pupil_id=3, min_points=5):
     binary = (pred_mask == pupil_id).astype(np.uint8)
     
-    # 1. 형태학적 닫기 (속눈썹으로 인한 얇은 분절 연결) - 최적 커널 크기 13 적용
+    # 1. Morphological Closing (Connect thin segments caused by eyelashes) - Optimal kernel size 13 applied
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (13, 13))
     closed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
     
@@ -100,7 +100,7 @@ def ellipse_postprocess(pred_mask, pupil_id=3, min_points=5):
     if not contours:
         return pred_mask
         
-    # 2. 가장 큰 조각 찾기
+    # 2. Find the largest component
     largest = max(contours, key=cv2.contourArea)
     largest_area = cv2.contourArea(largest)
     if largest_area == 0 or len(largest) < min_points:
@@ -116,11 +116,11 @@ def ellipse_postprocess(pred_mask, pupil_id=3, min_points=5):
             continue
         area = cv2.contourArea(cnt)
         
-        # 조건 1: 가장 큰 조각 대비 면적이 10% 미만이면 노이즈 (Grid Search 최적화 결과 반영)
+        # Condition 1: Noise if area is less than 10% of the largest component (Reflects Grid Search optimization results)
         if area < largest_area * 0.10:
             continue
             
-        # 조건 2: 거리가 너무 멀면 노이즈 (224 이미지 기준 반경 50픽셀 이내만 허용)
+        # Condition 2: Noise if distance is too far (Allow only within 50px radius for 224 image)
         M = cv2.moments(cnt)
         if M["m00"] != 0:
             cx = M["m10"] / M["m00"]
@@ -137,7 +137,7 @@ def ellipse_postprocess(pred_mask, pupil_id=3, min_points=5):
         
     ellipse = cv2.fitEllipse(all_points)
     
-    # 타원의 크기가 비정상(음수나 0)인 경우 기하학적 오류 방지
+    # Prevent geometric errors if ellipse size is abnormal (negative or zero)
     if ellipse[1][0] <= 0 or ellipse[1][1] <= 0:
         return pred_mask
         
@@ -146,7 +146,7 @@ def ellipse_postprocess(pred_mask, pupil_id=3, min_points=5):
     try:
         cv2.ellipse(result, ellipse, pupil_id, -1)
     except cv2.error as e:
-        # 드문 확률로 collinear points 등에서 발생하는 내부 에러 방어
+        # Defend against internal errors occurring from collinear points (rare)
         return pred_mask
         
     return result
@@ -185,13 +185,13 @@ def main():
     overlay_dir.mkdir(parents=True, exist_ok=True)
 
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    print(f"LPW 평가 시작 (Folders: {'1-22' if args.all_folders else args.folder}, s0={args.sigma0}, s1={args.sigma1}, ellipse={args.ellipse})")
+    print(f"Starting LPW evaluation (Folders: {'1-22' if args.all_folders else args.folder}, s0={args.sigma0}, s1={args.sigma1}, ellipse={args.ellipse})")
 
     model = get_model(device, args.sigma0, args.sigma1)
     
-    # GT는 전체 폴더에 대해 매핑 (target_folder 지정 안함)
+    # GT mapping for all folders (target_folder not specified)
     gt_mapping = build_gt_mapping(GT_BASE_DIR, target_folder=None)
-    print(f"로드된 GT 비디오 총 개수: {len(gt_mapping)}개")
+    print(f"Total loaded GT videos: {len(gt_mapping)}")
 
     total_iou_all, total_dice_all = [], []
     video_summaries = []
@@ -209,7 +209,7 @@ def main():
                 raw_videos = list(folder_dir.glob("*.avi")) if folder_dir.exists() else []
                 
                 if not raw_videos:
-                    print(f"[{folder_idx}] 원본 비디오를 찾을 수 없습니다. 건너뜁니다.")
+                    print(f"[{folder_idx}] Raw video not found. Skipping.")
                     continue
                     
                 folder_iou, folder_dice = [], []
@@ -220,13 +220,13 @@ def main():
                     try:
                         file_idx = int(raw_path.stem)
                     except ValueError:
-                        print(f"  [Folder {folder_idx}] 비정상적인 파일 이름 건너뜀: {raw_path.name}")
+                        print(f"  [Folder {folder_idx}] Skipping abnormal filename: {raw_path.name}")
                         continue
                         
                     key = f"{folder_idx}_{file_idx}"
                     
                     if key not in gt_mapping:
-                        print(f"  [Folder {folder_idx}] GT 없음 건너뜀: {raw_path.name}")
+                        print(f"  [Folder {folder_idx}] GT missing, skipping: {raw_path.name}")
                         continue
                         
                     gt_path = gt_mapping[key]
@@ -290,7 +290,7 @@ def main():
                         cv2.addWeighted(ov, 0.5, img_bgr, 0.5, 0, img_bgr)
                         out_vid.write(img_bgr)
                         
-                        # PNG 프레임 저장 (추후 논문 삽입용)
+                        # Save PNG frames (for future paper insertion)
                         png_dir = vid_overlay_dir / f"{raw_path.stem}_frames"
                         png_dir.mkdir(parents=True, exist_ok=True)
                         cv2.imwrite(str(png_dir / f"frame_{frame_idx:04d}.png"), img_bgr)

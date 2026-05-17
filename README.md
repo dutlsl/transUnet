@@ -165,10 +165,18 @@ Prepare the evaluation datasets and place them in the root directory:
 * `Pupils_in_the_wild_improved/`: Ground truth masks
 
 ### 4. Run Inference
+
+To evaluate on the LPW dataset:
 ```bash
-python eval_lpw_skipfilter.py
+python inference_lpw.py --all_folders --ellipse
 ```
-This script applies the complete **FAST-TransUNet pipeline** (Skip Filter + Hybrid Ellipse) to the LPW dataset. It will automatically calculate metrics and generate visual overlays in the `LPW_tables/` and `LPW_overlays_skipfilter/` directories.
+
+To evaluate on the Swirski dataset:
+```bash
+python inference_swirski.py --ellipse
+```
+
+These scripts apply the complete **FAST-TransUNet pipeline** (Skip Filter + Hybrid Ellipse). They will automatically calculate metrics and generate visual overlays in the respective output directories (e.g., `LPW_tables/`, `Swirski_tables/`).
 ---
 
 ## 📜 Citation
@@ -186,7 +194,7 @@ This script applies the complete **FAST-TransUNet pipeline** (Skip Filter + Hybr
 
 ## 🙏 Acknowledgements
 
-- **[TransUNet](https://github.com/Beckschen/TransUNet)** — Base architecture by Chen et al. (CVPR 2021)
+- **[TransUNet](https://github.com/Beckschen/TransUNet)** — Base architecture by Chen et al. (arXiv 2021)
 - **[OpenEDS](https://research.facebook.com/publications/openeds-open-eye-dataset/)** — Training dataset by Meta Research
 - **[Swirski & Bulling](https://www.cl.cam.ac.uk/research/rainbow/projects/pupiltracking/)** — Evaluation dataset
 - **[LPW (Labelled Pupils in the Wild)](https://www.mpi-inf.mpg.de/departments/computer-vision-and-machine-learning/research/gaze-based-human-computer-interaction/labelled-pupils-in-the-wild-lpw)** — Evaluation dataset by MPI-INF
