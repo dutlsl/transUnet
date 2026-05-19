@@ -177,17 +177,17 @@ Visual comparison on **Swirski p1-left, Frame 206** (Baseline IoU: 0.4530 → GL
 
 | Baseline | + Ellipse Only | + Skip Filter Only | **GLARIS (C1)** |
 |:-:|:-:|:-:|:-:|
-| ![Baseline](docs/images/baseline.png) | ![Ellipse Only](docs/images/ellipse_only.png) | ![SF Only](docs/images/sf_only.png) | ![Final](docs/images/final.png) |
+| ![Baseline](images/baseline.png) | ![Ellipse Only](images/ellipse_only.png) | ![SF Only](images/sf_only.png) | ![Final](images/final.png) |
 | Fragmented by eyelashes | Distorted ellipse fitting | Macro shape restored | **Clean pupil ellipse** ✅ |
 
 ### LPW — Dual-Gate Light Adapter (C2)
 
 Visual comparison on **LPW Folder 13, Video 2, Frame 0557** under severe low light / pupil dilation (Baseline IoU: 0.1089 → GLARIS IoU: **0.9585**):
 
-| C1 Only (Baseline) | **GLARIS (C1+C2)** |
-|:-:|:-:|
-| ![C1 Only](docs/images/qualitative_c1_f13_v2_0557.png) | ![GLARIS (C1+C2)](docs/images/qualitative_c2_f13_v2_0557.png) |
-| Fragmented / lost pupil boundary | **Precise pupil fitting via LPF & Zoom-out** |
+| Baseline (Vanilla) | C1 Only (Skip Filter + Ellipse) | **GLARIS (C1+C2)** |
+|:-:|:-:|:-:|
+| ![Baseline (Vanilla)](images/qualitative_vanilla_f13_v2_0557.png) | ![C1 Only](images/qualitative_c1_f13_v2_0557.png) | ![GLARIS (C1+C2)](images/qualitative_c2_f13_v2_0557.png) |
+| Severely fragmented segmentation | Fragmented / lost pupil boundary | **Precise pupil fitting via LPF & Zoom-out** |
 
 ---
 
@@ -216,23 +216,9 @@ Visual comparison on **LPW Folder 13, Video 2, Frame 0557** under severe low lig
 
 ---
 
-## 📖 Documentation
-
-- **[Contribution 2 Specification (Korean)](docs/contribution2_spec.md)** — Full technical spec of the Dual-Gate Light-Volume Adapter, including mathematical formulation and ablation tables.
-- **[Final Research Report (Korean)](docs/final_research_report.md)** — Full experiment log including hypotheses, ablation studies, trial-and-error records, and per-case analysis for Contribution 1.
-
----
-
 ## 📜 Citation
 
-```bibtex
-@misc{glaris2026,
-  title   = {GLARIS: Gated Light-Adaptive Robust Inference for Zero-shot Pupil Segmentation},
-  author  = {IU Lab},
-  year    = {2026},
-  url     = {https://github.com/dutlsl/transUnet}
-}
-```
+> 🚧 **Coming Soon** — The official citation block will be added upon the workshop paper publication.
 
 ---
 
