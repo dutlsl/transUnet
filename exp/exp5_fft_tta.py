@@ -18,8 +18,8 @@ from tta_fft_core import FFTChannelGate, alignment_loss
 # =====================================================================
 WEIGHTS_PATH = "./models_transunet/best_model.pth"
 BASE_DIR = Path("./Swirski_Dataset")
-TABLE_DIR = Path("./Swirski_tables")
-OVERLAY_DIR = Path("./Swirski_overlays_tta")
+TABLE_DIR = Path("./final_v2/Swirski_tables")
+OVERLAY_DIR = Path("./final_v2/Swirski_overlays")
 
 IMG_SIZE = 224
 NUM_CLASSES = 4
@@ -129,6 +129,14 @@ def extract_frame_idx(filename):
     match = re.search(r'(\d+)-eye\.png', filename)
     return int(match.group(1)) if match else -1
 
+def create_segmentation_overlay(img, pred_mask):
+    img_bgr = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR) if len(img.shape) == 2 else img.copy()
+    overlay = img_bgr.copy()
+    overlay[pred_mask == PUPIL_CLASS_ID] = [0, 0, 255]
+    alpha = 0.5
+    cv2.addWeighted(overlay, alpha, img_bgr, 1 - alpha, 0, img_bgr)
+    return img_bgr
+
 def patched_decoder_forward_tta(self, hidden_states, features=None):
     sigma0 = 1.0
     sigma1 = 0.5
@@ -221,6 +229,8 @@ def main():
             frame_files.sort(key=lambda x: extract_frame_idx(x.name))
 
             case_iou, case_dice = [], []
+            case_overlay_dir = OVERLAY_DIR / suffix / case_name
+            case_overlay_dir.mkdir(parents=True, exist_ok=True)
 
             for frame_file in frame_files:
                 frame_idx = extract_frame_idx(frame_file.name)
@@ -280,6 +290,10 @@ def main():
                 case_iou.append(iou)
                 case_dice.append(dice)
                 csv_writer.writerow([case_name, frame_idx, f"{iou:.4f}", f"{dice:.4f}"])
+                
+                # Save overlay
+                overlay_img = create_segmentation_overlay(img_raw, pred_resized)
+                cv2.imwrite(str(case_overlay_dir / f"overlay_{frame_idx:04d}.png"), overlay_img)
 
             if case_iou:
                 mIoU = sum(case_iou) / len(case_iou)

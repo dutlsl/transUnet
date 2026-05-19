@@ -19,12 +19,45 @@ from networks.vit_seg_modeling import CONFIGS as CONFIGS_ViT_seg
 WEIGHTS_PATH = "./models_transunet/best_model.pth"
 RAW_BASE_DIR = Path("./LPW")
 GT_BASE_DIR = Path("./Pupils_in_the_wild_improved")
-TABLE_DIR = Path("./LPW_tables")
-OVERLAY_DIR = Path("./LPW_overlays_skipfilter")
+TABLE_DIR = Path("./final_v2/LPW_tables")
+OVERLAY_DIR = Path("./final_v2/LPW_overlays")
 
 IMG_SIZE = 224
 NUM_CLASSES = 4
 PUPIL_CLASS_ID = 3
+
+# ── NEW: Pure FFT Gaussian Low-Pass Filter ──────────────────────────────────
+def ue_fft_pure_lowpass(img_gray, cutoff_radius=50):
+    """
+    이미지 전체에 대해 FFT를 수행하고 고주파(글린트)를 억제하는 가우시안 LPF 적용.
+    공간 마스크 일절 없음.
+    """
+    H, W = img_gray.shape
+    f = np.fft.fft2(img_gray.astype(np.float32))
+    fshift = np.fft.fftshift(f)
+    
+    cy, cx = H//2, W//2
+    yy, xx = np.ogrid[:H, :W]
+    
+    # 가우시안 저주파 필터 생성
+    dist = (yy - cy)**2 + (xx - cx)**2
+    # cutoff_radius가 작을수록 더 많이 뭉개짐
+    kernel = np.exp(-dist / (2 * (cutoff_radius**2)))
+    
+    fshift_filtered = fshift * kernel
+    img_back = np.abs(np.fft.ifft2(np.fft.ifftshift(fshift_filtered)))
+    return np.clip(img_back, 0, 255).astype(np.uint8)
+
+def ue_zoom_out(img_gray, scale=0.65):
+    H, W = img_gray.shape
+    nH, nW = int(H*scale), int(W*scale)
+    resized = cv2.resize(img_gray, (nW, nH), interpolation=cv2.INTER_AREA)
+    bg = int(np.median(img_gray))
+    canvas = np.full((H, W), bg, dtype=np.uint8)
+    y0=(H-nH)//2; x0=(W-nW)//2
+    canvas[y0:y0+nH, x0:x0+nW] = resized
+    return canvas, y0, x0, nH, nW
+
 
 def ritnet_preprocess(img_gray):
     normalized = img_gray.astype(np.float32) / 255.0
@@ -171,11 +204,21 @@ def main():
     parser.add_argument('--preprocess', action='store_true')
     parser.add_argument('--folder', type=int, default=1, help='LPW folder number to evaluate')
     parser.add_argument('--all_folders', action='store_true', help='Evaluate all folders (1-22)')
+    parser.add_argument('--f_start', type=int, default=None)
+    parser.add_argument('--f_end', type=int, default=None)
+    parser.add_argument('--device', type=str, default='cuda:0', help='cuda device to use')
     parser.add_argument('--dry_run', action='store_true', help='Dry run to test 10 frames only')
+    parser.add_argument('--ue_fft', action='store_true', help='Apply UE FFT pure LPF + zoom out')
     args = parser.parse_args()
 
-    folder_list = list(range(1, 23)) if args.all_folders else [args.folder]
-    suffix = f"f{'ALL' if args.all_folders else args.folder}_s0_{args.sigma0}_s1_{args.sigma1}_ell{'O' if args.ellipse else 'X'}_pre{'O' if args.preprocess else 'X'}"
+    if args.f_start is not None and args.f_end is not None:
+        folder_list = list(range(args.f_start, args.f_end + 1))
+        folder_str = f"f{args.f_start}_to_f{args.f_end}"
+    else:
+        folder_list = list(range(1, 23)) if args.all_folders else [args.folder]
+        folder_str = f"f{'ALL' if args.all_folders else args.folder}"
+        
+    suffix = f"{folder_str}_s0_{args.sigma0}_s1_{args.sigma1}_ell{'O' if args.ellipse else 'X'}_pre{'O' if args.preprocess else 'X'}_fft{'O' if args.ue_fft else 'X'}"
     
     frame_csv_path = TABLE_DIR / f"lpw_skipfilter_{suffix}_frames.csv"
     compact_csv_path = TABLE_DIR / f"lpw_skipfilter_{suffix}_compact.csv"
@@ -184,8 +227,8 @@ def main():
     TABLE_DIR.mkdir(parents=True, exist_ok=True)
     overlay_dir.mkdir(parents=True, exist_ok=True)
 
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    print(f"LPW 평가 시작 (Folders: {'1-22' if args.all_folders else args.folder}, s0={args.sigma0}, s1={args.sigma1}, ellipse={args.ellipse})")
+    device = torch.device(args.device if torch.cuda.is_available() else 'cpu')
+    print(f"LPW 평가 시작 (Folders: {folder_list}, s0={args.sigma0}, s1={args.sigma1}, ellipse={args.ellipse})")
 
     model = get_model(device, args.sigma0, args.sigma1)
     
@@ -258,9 +301,17 @@ def main():
                         h, w = frame_r.shape[:2]
                         gray = cv2.cvtColor(frame_r, cv2.COLOR_BGR2GRAY) if len(frame_r.shape) == 3 else frame_r
 
-                        img_for_model = gray
+                        img_for_model = gray.copy()
                         if args.preprocess:
-                            img_for_model = ritnet_preprocess(gray)
+                            img_for_model = ritnet_preprocess(img_for_model)
+
+                        is_ue = False
+                        y0, x0, nH, nW = 0, 0, h, w
+                        
+                        if args.ue_fft and gray.mean() < 110:
+                            is_ue = True
+                            img_for_model = ue_fft_pure_lowpass(img_for_model, cutoff_radius=50)
+                            img_for_model, y0, x0, nH, nW = ue_zoom_out(img_for_model, scale=0.65)
 
                         rgb = cv2.cvtColor(img_for_model, cv2.COLOR_GRAY2RGB)
                         resized = cv2.resize(rgb, (IMG_SIZE, IMG_SIZE))
@@ -273,7 +324,12 @@ def main():
                         if args.ellipse:
                             pred = ellipse_postprocess(pred, PUPIL_CLASS_ID)
 
-                        pred_full = cv2.resize(pred, (w, h), interpolation=cv2.INTER_NEAREST)
+                        if is_ue and args.ue_fft:
+                            pred_canvas = cv2.resize(pred, (w, h), interpolation=cv2.INTER_NEAREST)
+                            pred_region = pred_canvas[y0:y0+nH, x0:x0+nW]
+                            pred_full = cv2.resize(pred_region, (w, h), interpolation=cv2.INTER_NEAREST)
+                        else:
+                            pred_full = cv2.resize(pred, (w, h), interpolation=cv2.INTER_NEAREST)
 
                         gray_gt = cv2.cvtColor(frame_g, cv2.COLOR_BGR2GRAY) if len(frame_g.shape) == 3 else frame_g
                         gray_gt = cv2.resize(gray_gt, (w, h), interpolation=cv2.INTER_NEAREST)
