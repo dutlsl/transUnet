@@ -37,24 +37,49 @@
 
 ### 2.1. 동적 광량 상태 판별 함수
 이미지 텐서 $I \in \mathbb{R}^{H \times W}$에 대해,
-- **과노출(OE) 함수:** 
-  $$ \mathcal{H}_{oe}(I) = \begin{cases} \text{True}, & \text{if } \frac{1}{H \times W}\sum_{x,y} \mathbb{I}(I(x,y) > 240) > 0.08 \\ \text{False}, & \text{otherwise} \end{cases} $$
-- **저조도(UE) 함수:** 
-  $$ \mathcal{H}_{ue}(I) = \begin{cases} \text{True}, & \text{if } \frac{1}{H \times W}\sum_{x,y} I(x,y) < \tau_{ue} \\ \text{False}, & \text{otherwise} \end{cases} $$
+
+- **과노출(OE) 함수:**
+
+$$
+\mathcal{H}_{\text{oe}}(I) = \begin{cases} \text{True}, & \text{if } \frac{1}{H \times W}\sum_{x,y} \mathbb{I}(I(x,y) > 240) > 0.08 \\ \text{False}, & \text{otherwise} \end{cases}
+$$
+
+- **저조도(UE) 함수:**
+
+$$
+\mathcal{H}_{\text{ue}}(I) = \begin{cases} \text{True}, & \text{if } \frac{1}{H \times W}\sum_{x,y} I(x,y) < \tau_{\text{ue}} \\ \text{False}, & \text{otherwise} \end{cases}
+$$
 
 ### 2.2. 과노출 내부 피처 필터링: SAGFEE 모듈
-1. **고주파 추출:** 피처 맵 $X$의 정규화된 $2D\text{-}FFT$ 스펙트럼에서 반경 $d_{hp}$ 이내의 저주파 에너지를 억제하는 마스크 $\mathcal{M}_{hp}$를 적용하여 에지 텐서 $F_{hp}$ 획득.
+1. **고주파 추출:** 피처 맵 $X$의 정규화된 $2\text{D-FFT}$ 스펙트럼에서 반경 $d_{\text{hp}}$ 이내의 저주파 에너지를 억제하는 마스크 $\mathcal{M}_{\text{hp}}$를 적용하여 에지 텐서 $F_{\text{hp}}$ 획득.
 2. **어텐션 맵(광량 분포) 도출:**
-   $$ Act(x,y) = \frac{1}{C}\sum_{c=1}^{C} |X(c, x, y)| $$
-   $$ A(x,y) = \sigma\left(\gamma \cdot \frac{Act(x,y) - \mu_{Act}}{\sigma_{Act} + \epsilon}\right) $$
+
+$$
+\text{Act}(x,y) = \frac{1}{C}\sum_{c=1}^{C} |X(c, x, y)|
+$$
+
+$$
+A(x,y) = \sigma\left(\gamma \cdot \frac{\text{Act}(x,y) - \mu_{\text{Act}}}{\sigma_{\text{Act}} + \epsilon}\right)
+$$
+
 3. **피처 머징 (어텐션 기반 고주파 감쇠):**
-   $$ X_{adaptive} = A \otimes F_{hp} + (1 - A) \otimes X $$
+
+$$
+X_{\text{adaptive}} = A \otimes F_{\text{hp}} + (1 - A) \otimes X
+$$
 
 ### 2.3. 저조도(UE) 입력 텐서 필터링: FFT LPF 및 Zoom-out
-1. **FFT Low-Pass Filter:** 입력 이미지 텐서 $I$에 대해 정규화된 $2D\text{-}FFT$ 스펙트럼 $\mathcal{F}(I)$를 구하고, 주파수 도메인 중심 반경 $R=50$ 이내의 저주파 에너지만을 통과시키는 원형 마스크 $\mathcal{M}_{lp}$를 적용합니다.
-   $$ \mathcal{F}_{lp}(u, v) = \mathcal{F}(I)(u, v) \cdot \mathbb{I}(u^2 + v^2 \leq R^2) $$
-   $$ I_{lpf} = |\mathcal{F}^{-1}(\mathcal{F}_{lp})| $$
-2. **Zoom-out Spatial Scaling:** 수용 영역(Receptive Field) 이탈 방지를 위해 저주파 필터링이 완료된 이미지 $I_{lpf}$를 최적 비율 $S=0.65$로 공간적 축소(Resize) 후, 외곽 빈 공간을 이미지 평균 패딩으로 채웁니다(Zero-padding).
+1. **FFT Low-Pass Filter:** 입력 이미지 텐서 $I$에 대해 정규화된 $2\text{D-FFT}$ 스펙트럼 $\mathcal{F}(I)$를 구하고, 주파수 도메인 중심 반경 $R=50$ 이내의 저주파 에너지만을 통과시키는 원형 마스크 $\mathcal{M}_{\text{lp}}$를 적용합니다.
+
+$$
+\mathcal{F}_{\text{lp}}(u, v) = \mathcal{F}(I)(u, v) \cdot \mathbb{I}(u^2 + v^2 \leq R^2)
+$$
+
+$$
+I_{\text{lpf}} = |\mathcal{F}^{-1}(\mathcal{F}_{\text{lp}})|
+$$
+
+2. **Zoom-out Spatial Scaling:** 수용 영역(Receptive Field) 이탈 방지를 위해 저주파 필터링이 완료된 이미지 $I_{\text{lpf}}$를 최적 비율 $S=0.65$로 공간적 축소(Resize) 후, 외곽 빈 공간을 이미지 평균 패딩으로 채웁니다(Zero-padding).
 
 ---
 
