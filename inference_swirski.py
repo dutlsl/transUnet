@@ -1,3 +1,11 @@
+"""
+inference_swirski.py
+FAST-TransUNet Swirski Inference Script.
+Integrates:
+1. Contribution 1: Skip Connection Gaussian Filter (sigma0=1.0, sigma1=0.5) & Hybrid Ellipse Fitting
+2. Contribution 2: Test-Time Adaptation (TTA) with FFTChannelGate and alignment_loss
+"""
+
 import os
 import cv2
 import torch
@@ -8,14 +16,12 @@ import math
 import types
 from pathlib import Path
 import argparse
-
 import torchvision.transforms.functional as TF
 
 from networks.vit_seg_modeling import VisionTransformer
 from networks.vit_seg_modeling import CONFIGS as CONFIGS_ViT_seg
 from tta_fft_core import FFTChannelGate, alignment_loss
 
-# =====================================================================
 WEIGHTS_PATH = "./models_transunet/best_model.pth"
 BASE_DIR = Path("./Swirski_Dataset")
 TABLE_DIR = Path("./final_v2/Swirski_tables")
@@ -24,22 +30,18 @@ OVERLAY_DIR = Path("./final_v2/Swirski_overlays")
 IMG_SIZE = 224
 NUM_CLASSES = 4
 PUPIL_CLASS_ID = 3
-# =====================================================================
 
 def calc_metrics(pred_mask, gt_mask, class_id):
     pred_bin = (pred_mask == class_id)
     gt_bin = (gt_mask == 255)
-
     intersection = np.logical_and(pred_bin, gt_bin).sum()
     union = np.logical_or(pred_bin, gt_bin).sum()
-
     if union == 0:
         iou = 1.0 if np.sum(pred_bin) == 0 else 0.0
         dice = 1.0 if np.sum(pred_bin) == 0 else 0.0
     else:
         iou = intersection / union
         dice = 2 * intersection / (pred_bin.sum() + gt_bin.sum())
-
     return iou, dice
 
 def load_ellipse_gt(txt_path):
@@ -193,19 +195,21 @@ def get_transunet_model(device):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--radius', type=int, default=8, help='FFT High/Low Frequency Split Radius')
-    parser.add_argument('--lr', type=float, default=0.01, help='Learning rate for TTA')
-    parser.add_argument('--iterations', type=int, default=1, help='Number of TTA iterations per image')
-    parser.add_argument('--ellipse', action='store_true', help='Enable Ellipse fitting post-processing')
+    parser.add_argument('--radius', type=int, default=8, help='FFT Gate low pass radius')
+    parser.add_argument('--lr', type=float, default=0.01, help='TTA Learning rate')
+    parser.add_argument('--iterations', type=int, default=3, help='TTA iterations per frame')
+    parser.add_argument('--ellipse', action='store_true', default=True, help='Use ellipse fitting')
     parser.add_argument('--preprocess', action='store_true', help='Apply RITnet preprocessing (Gamma 0.8 + CLAHE)')
+    parser.add_argument('--device', type=str, default='cuda:0', help='Device to use')
     args = parser.parse_args()
 
     suffix = f"tta_r{args.radius}_lr{args.lr}_it{args.iterations}_ell{'O' if args.ellipse else 'X'}_pre{'O' if args.preprocess else 'X'}"
     csv_path = TABLE_DIR / f"swirski_{suffix}.csv"
     
     TABLE_DIR.mkdir(parents=True, exist_ok=True)
+    OVERLAY_DIR.mkdir(parents=True, exist_ok=True)
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device(args.device if torch.cuda.is_available() else 'cpu')
     print(f"Starting TTA (radius={args.radius}, lr={args.lr}) on {device}")
 
     model = get_transunet_model(device)
@@ -242,7 +246,7 @@ def main():
                     continue
                 
                 h, w = img_raw.shape
-                img_for_model = img_raw
+                img_for_model = img_raw.copy()
                 if args.preprocess:
                     img_for_model = ritnet_preprocess(img_raw)
                 rgb = cv2.cvtColor(img_for_model, cv2.COLOR_GRAY2RGB)
@@ -280,32 +284,33 @@ def main():
                 
                 if args.ellipse:
                     pred = ellipse_postprocess(pred, PUPIL_CLASS_ID)
-                    
-                pred_resized = cv2.resize(pred, (w, h), interpolation=cv2.INTER_NEAREST)
-
-                gt_param = gt_dict[frame_idx]
-                gt_mask = draw_gt_ellipse(h, w, gt_param)
-
-                iou, dice = calc_metrics(pred_resized, gt_mask, PUPIL_CLASS_ID)
+                
+                pred_full = cv2.resize(pred, (w, h), interpolation=cv2.INTER_NEAREST)
+                gt_mask = draw_gt_ellipse(h, w, gt_dict[frame_idx])
+                
+                iou, dice = calc_metrics(pred_full, gt_mask, PUPIL_CLASS_ID)
                 case_iou.append(iou)
                 case_dice.append(dice)
+                
                 csv_writer.writerow([case_name, frame_idx, f"{iou:.4f}", f"{dice:.4f}"])
                 
-                # Save overlay
-                overlay_img = create_segmentation_overlay(img_raw, pred_resized)
-                cv2.imwrite(str(case_overlay_dir / f"overlay_{frame_idx:04d}.png"), overlay_img)
+                # Save overlay for first frame of each case
+                if len(case_iou) == 1:
+                    overlay = create_segmentation_overlay(img_raw, pred_full)
+                    cv2.imwrite(str(case_overlay_dir / f"{frame_idx}_overlay.png"), overlay)
 
             if case_iou:
-                mIoU = sum(case_iou) / len(case_iou)
-                mDice = sum(case_dice) / len(case_dice)
-                print(f"  [{case_name}] mIoU: {mIoU:.4f} | mDice: {mDice:.4f}")
+                mean_iou = np.mean(case_iou)
+                mean_dice = np.mean(case_dice)
+                print(f"Case {case_name}: mIoU = {mean_iou:.4f}, mDice = {mean_dice:.4f}")
                 total_iou.extend(case_iou)
                 total_dice.extend(case_dice)
 
         if total_iou:
-            t_mIoU = sum(total_iou) / len(total_iou)
-            t_mDice = sum(total_dice) / len(total_dice)
-            print(f"\n[Total] mIoU: {t_mIoU:.4f} | mDice: {t_mDice:.4f}")
+            final_iou = np.mean(total_iou)
+            final_dice = np.mean(total_dice)
+            print(f"Overall Swirski: mIoU = {final_iou:.4f}, mDice = {final_dice:.4f}")
+            csv_writer.writerow(['ALL', 'TOTAL', f"{final_iou:.4f}", f"{final_dice:.4f}"])
 
 if __name__ == '__main__':
     main()
