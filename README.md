@@ -22,7 +22,7 @@ Models trained on clean, controlled VR eye-tracking datasets (e.g., [OpenEDS](ht
 
 GLARIS addresses this via **two complementary, training-free contributions**:
 
-| Contribution | Module | Mechanism | Primary Strength |
+| | Module | Mechanism | Primary Strength |
 |:-:|:---|:---|:---|
 | **C1** | **Skip Filter** + **Hybrid Ellipse** | Gaussian LPF on skip connections; morphological ellipse post-processing | Suppresses high-freq eyelash noise & restores fragmented masks |
 | **C2** | **Dual-Gate Light Adapter** | Exposure-gated FFT filtering, Fourier amplitude blending, zoom-out scaling | Handles extreme over/under-exposure without degrading normal frames |
@@ -33,80 +33,77 @@ GLARIS addresses this via **two complementary, training-free contributions**:
 
 ## 🏗️ Architecture
 
-### Fig. 1 — Skip Filter & Hybrid Ellipse (Contribution 1)
+### Fig. 1 — GLARIS Overall Pipeline
 
 ```mermaid
 %%{init: {'theme': 'neutral'}}%%
 flowchart TD
-    Input(["Input Image 224x224"]):::io --> Encoder["CNN Encoder ResNet-50"]
+    Raw(["Raw Frame"]):::io --> Gate{"🔀 Dual-Gate\n(C2: see Fig. 2)"}:::c2
 
-    Encoder -->|"Skip 0: 112x112"| SF0["Skip Filter σ=1.0"]:::highlight
-    Encoder -->|"Skip 1: 56x56"| SF1["Skip Filter σ=0.5"]:::highlight
-    Encoder -->|"Skip 2: 28x28"| Pass["Passthrough No Filter"]
+    Gate -->|"Normal"| Img(["Input 224×224"]):::io
+    Gate -->|"OE / UE"| Img
 
-    Encoder -->|"Bottleneck"| ViT["Vision Transformer ViT-B/16"]
-    ViT --> Decoder["Cascaded UNet Decoder"]
+    Img --> Encoder["CNN Encoder\nResNet-50"]
+
+    Encoder -->|"Skip 0  112×112"| SF0["🔵 Skip Filter σ=1.0"]:::c1
+    Encoder -->|"Skip 1  56×56"| SF1["🔵 Skip Filter σ=0.5"]:::c1
+    Encoder -->|"Skip 2  28×28"| Pass["Passthrough"]
+
+    Encoder -->|"Bottleneck"| ViT["Vision Transformer\nViT-B/16"]
+    ViT --> Decoder["Cascaded\nUNet Decoder"]
 
     SF0 -->|"Filtered"| Decoder
     SF1 -->|"Filtered"| Decoder
     Pass --> Decoder
 
-    Decoder --> Pred["Raw Prediction Mask"]
-    Pred --> Post["Hybrid Ellipse Post-processing"]:::highlight
+    Decoder --> Pred["Raw Prediction"]
+    Pred --> Post["🔵 Hybrid Ellipse\nPost-processing"]:::c1
     Post --> Final(["Final Pupil Ellipse"]):::io
 
-    classDef highlight fill:#e0f2fe,stroke:#0284c7,stroke-width:2px,color:#0c4a6e
+    classDef c1 fill:#e0f2fe,stroke:#0284c7,stroke-width:2px,color:#0c4a6e
+    classDef c2 fill:#fef3c7,stroke:#d97706,stroke-width:2px,color:#78350f
     classDef io fill:#f1f5f9,stroke:#64748b,stroke-width:1px,color:#0f172a
 ```
 
-### Fig. 2 — Dual-Gate Light-Volume Adapter (Contribution 2)
+The diagram above shows the full GLARIS inference pipeline. Blue nodes (🔵) mark **Contribution 1** — frequency-adaptive skip filters and hybrid ellipse fitting. The amber gate node (🔀) at the entry point marks **Contribution 2** — the Dual-Gate Light Adapter, which conditionally pre-processes the input *before* it reaches the backbone.
+
+**Why target skip connections, not the Transformer?**  The ViT backbone processes 14×14 patches — eyelash-scale noise (1–2 px) is naturally smoothed out by self-attention at this coarse resolution. The real culprit is the **skip connections**: high-resolution feature maps (112×112, 56×56) carry raw, unfiltered eyelash edges straight into the decoder, causing it to mistake hair strands for pupil boundaries. GLARIS injects **resolution-adaptive Gaussian blur** (σ=1.0 at 112², σ=0.5 at 56²) into the skip paths, selectively suppressing high-frequency artifacts while preserving the coarse shape information the decoder needs.
+
+### Fig. 2 — Dual-Gate Light-Volume Adapter (C2 Detail)
 
 ```mermaid
 %%{init: {'theme': 'neutral'}}%%
 flowchart TD
-    Raw(["Raw Frame"]):::io --> Detect{"Exposure State\nDetection"}
+    Raw(["Raw Frame"]):::io --> Detect{"Exposure\nDetection"}
 
-    Detect -->|"Normal"| Bypass["Passthrough\n(No Processing)"]
-    Detect -->|"Overexposure"| OE_Gate["OE Gate"]:::oe
-    Detect -->|"Underexposure"| UE_Gate["UE Gate"]:::ue
+    Detect -->|"Normal"| Bypass["Passthrough"]
+    Detect -->|"Overexposure"| OE["OE Gate"]:::oe
+    Detect -->|"Underexposure"| UE["UE Gate"]:::ue
 
-    OE_Gate --> Inpaint["Glare Inpainting\n(Telea, thresh>240)"]:::oe
-    Inpaint --> FAB["Fourier Amplitude\nBlending (α=0.3)"]:::oe
-    FAB --> SAGFEE["SAGFEE Feature\nFiltering (gain=0.3)"]:::oe
+    OE --> Inpaint["Glare Inpainting"]:::oe
+    Inpaint --> FAB["Fourier Amp.\nBlending α=0.3"]:::oe
+    FAB --> SAGFEE["SAGFEE\ngain=0.3"]:::oe
 
-    UE_Gate --> LPF["FFT Low-Pass\nFilter (R=50)"]:::ue
-    LPF --> Zoom["Zoom-Out Scaling\n(S=0.65)"]:::ue
+    UE --> LPF["FFT LPF\nR=50"]:::ue
+    LPF --> Zoom["Zoom-Out\nS=0.65"]:::ue
     Zoom --> Pad["Mean-Padded\nCanvas"]:::ue
 
-    Bypass --> Model["GLARIS Backbone\n(Fig. 1)"]
-    SAGFEE --> Model
-    Pad --> Model
-
-    Model --> Out{"UE Gate\nUsed?"}
-    Out -->|"No"| Final(["Final Mask"]):::io
-    Out -->|"Yes"| Expand["Re-expand\n(S⁻¹ Rescale)"]:::ue
-    Expand --> Final
+    Bypass --> Out(["→ Fig. 1\nBackbone"]):::io
+    SAGFEE --> Out
+    Pad --> Out
 
     classDef io fill:#f1f5f9,stroke:#64748b,stroke-width:1px,color:#0f172a
     classDef oe fill:#fef3c7,stroke:#d97706,stroke-width:2px,color:#78350f
     classDef ue fill:#ede9fe,stroke:#7c3aed,stroke-width:2px,color:#3b0764
 ```
 
-### Why Skip Connections, Not the Transformer?
-
-The ViT backbone processes 14×14 patches — eyelash-scale noise (1–2 px) is naturally smoothed out by self-attention at this coarse resolution. The real culprit is the **skip connections**: high-resolution feature maps (112×112, 56×56) carry raw, unfiltered eyelash edges straight into the decoder, causing it to mistake hair strands for pupil boundaries.
-
-GLARIS injects **resolution-adaptive Gaussian blur** (σ=1.0 at 112², σ=0.5 at 56²) into the skip paths, selectively suppressing high-frequency artifacts while preserving the coarse shape information the decoder needs.
-
-### Why a Dual-Gate, Not Global Filtering?
-
-Applying frequency filtering or spatial scaling *unconditionally* degrades normal frames. GLARIS solves this with an **exposure-gated branching** strategy:
+This diagram expands the amber **🔀 Dual-Gate** node from Fig. 1. On each frame, a lightweight exposure detector classifies the illumination state and routes the frame through one of three branches:
 
 - **Normal frames** → bypass all processing (zero degradation guarantee)
-- **Overexposed frames** → OE gate: inpaint saturated glare, blend Fourier amplitudes with a clean reference, suppress residual high-frequency noise via SAGFEE
-- **Underexposed frames** → UE gate: FFT low-pass to remove scattered glint, zoom-out to fit dilated pupils back within the model's receptive field
+- **Overexposed** (amber) → inpaint saturated glare, blend Fourier amplitudes with a clean reference, suppress residual noise via SAGFEE
+- **Underexposed** (purple) → FFT low-pass to remove scattered glint, zoom-out to fit dilated pupils back within the model's receptive field
 
-This conditional architecture ensures the gate **never fires on clean data**, preserving 100% of the baseline performance on normal-lighting cases.
+**Why a gate, not global filtering?** Applying frequency filtering or spatial scaling *unconditionally* degrades normal frames. The conditional gate ensures it **never fires on clean data**, preserving 100% of baseline performance on normal-lighting cases — verified across all 3 normal Swirski cases where C1+C2 scores are *identical* to C1-only.
 
 ---
 
