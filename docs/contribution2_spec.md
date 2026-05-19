@@ -10,7 +10,7 @@
 
 ### [Phase 1: 입력단 전처리 및 기여 2 (Dual-Gate Light-Volume Filter)]
 - **1-1. Exposure State Detection (동적 광량 판별):**
-  입력되는 그레이스케일 이미지 $I$의 전체 평균 밝기 $\mu_I$ 및 상위 1% 픽셀의 포화도를 계산하여, 현재 프레임이 **과노출(Overexposure, OE)**인지 **저조도(Underexposure, UE)**인지, 혹은 정상 범주인지 실시간으로 분기합니다.
+  입력되는 그레이스케일 이미지 $I$의 전체 평균 밝기 $\mu\_I$ 및 상위 1% 픽셀의 포화도를 계산하여, 현재 프레임이 **과노출(Overexposure, OE)**인지 **저조도(Underexposure, UE)**인지, 혹은 정상 범주인지 실시간으로 분기합니다.
 - **1-2. OE Gate 가동 시 (과노출):**
   - **Glare Inpainting:** 포화된 픽셀($>240$) 주변을 형태학적 팽창(Morphological Dilation) 후 Telea 알고리즘으로 인페인팅합니다.
   - **FAB (Fourier Amplitude Blending):** 동일 비디오 내 정상 프레임의 클린 스펙트럼 진폭(Clean Amplitude)을 추출하여 현재 프레임의 진폭과 $\alpha=0.3$의 비율로 블렌딩합니다.
@@ -47,11 +47,11 @@ $$
 - **저조도(UE) 함수:**
 
 $$
-\mathcal{H}_{\text{ue}}(I) = \begin{cases} \text{True}, & \text{if } \frac{1}{H \times W}\sum_{x,y} I(x,y) < \tau_{\text{ue}} \\ \text{False}, & \text{otherwise} \end{cases}
+\mathcal{H}_{\text{ue}}(I) = \begin{cases} \text{True}, & \text{if } \frac{1}{H \times W}\sum_{x,y} I(x,y) < \tau\_{\text{ue}} \\ \text{False}, & \text{otherwise} \end{cases}
 $$
 
 ### 2.2. 과노출 내부 피처 필터링: SAGFEE 모듈
-1. **고주파 추출:** 피처 맵 $X$의 정규화된 $2\text{D-FFT}$ 스펙트럼에서 반경 $d_{\text{hp}}$ 이내의 저주파 에너지를 억제하는 마스크 $\mathcal{M}_{\text{hp}}$를 적용하여 에지 텐서 $F_{\text{hp}}$ 획득.
+1. **고주파 추출:** 피처 맵 $X$의 정규화된 $2\text{D-FFT}$ 스펙트럼에서 반경 $d\_{\text{hp}}$ 이내의 저주파 에너지를 억제하는 마스크 $\mathcal{M}\_{\text{hp}}$를 적용하여 에지 텐서 $F\_{\text{hp}}$ 획득.
 2. **어텐션 맵(광량 분포) 도출:**
 
 $$
@@ -69,17 +69,17 @@ X_{\text{adaptive}} = A \otimes F_{\text{hp}} + (1 - A) \otimes X
 $$
 
 ### 2.3. 저조도(UE) 입력 텐서 필터링: FFT LPF 및 Zoom-out
-1. **FFT Low-Pass Filter:** 입력 이미지 텐서 $I$에 대해 정규화된 $2\text{D-FFT}$ 스펙트럼 $\mathcal{F}(I)$를 구하고, 주파수 도메인 중심 반경 $R=50$ 이내의 저주파 에너지만을 통과시키는 원형 마스크 $\mathcal{M}_{\text{lp}}$를 적용합니다.
+1. **FFT Low-Pass Filter:** 입력 이미지 텐서 $I$에 대해 정규화된 $2\text{D-FFT}$ 스펙트럼 $\mathcal{F}(I)$를 구하고, 주파수 도메인 중심 반경 $R=50$ 이내의 저주파 에너지만을 통과시키는 원형 마스크 $\mathcal{M}\_{\text{lp}}$를 적용합니다.
 
 $$
 \mathcal{F}_{\text{lp}}(u, v) = \mathcal{F}(I)(u, v) \cdot \mathbb{I}(u^2 + v^2 \leq R^2)
 $$
 
 $$
-I_{\text{lpf}} = |\mathcal{F}^{-1}(\mathcal{F}_{\text{lp}})|
+I\_{\text{lpf}} = |\mathcal{F}^{-1}(\mathcal{F}_{\text{lp}})|
 $$
 
-2. **Zoom-out Spatial Scaling:** 수용 영역(Receptive Field) 이탈 방지를 위해 저주파 필터링이 완료된 이미지 $I_{\text{lpf}}$를 최적 비율 $S=0.65$로 공간적 축소(Resize) 후, 외곽 빈 공간을 이미지 평균 패딩으로 채웁니다(Zero-padding).
+2. **Zoom-out Spatial Scaling:** 수용 영역(Receptive Field) 이탈 방지를 위해 저주파 필터링이 완료된 이미지 $I\_{\text{lpf}}$를 최적 비율 $S=0.65$로 공간적 축소(Resize) 후, 외곽 빈 공간을 이미지 평균 패딩으로 채웁니다(Zero-padding).
 
 ---
 
@@ -110,23 +110,23 @@ FAST-TransUNet의 기여 2 모듈 성능을 입증하기 위해, 약 4시간 동
 
 | Folder ID | Baseline mIoU | Final Config (Dual-Gate) mIoU | 성능 향상폭 ($\Delta$) | 비고 (주요 조명 특성) |
 | :---: | :---: | :---: | :---: | :--- |
-| Folder 1 | 0.8536 | [진행 중] | [진행 중] | 비교적 정상 조도 |
-| Folder 2 | 0.7559 | [진행 중] | [진행 중] | 형태 보존 유지 |
-| Folder 3 | 0.5841 | [진행 중] | [진행 중] | 저조도 동공 팽창 |
-| Folder 4 | 0.3883 | [진행 중] | [진행 중] | 완전한 형태 붕괴 모델링 한계 |
-| Folder 5 | 0.3917 | [진행 중] | [진행 중] | 극단적 조도 변화 |
-| Folder 6 | 0.8068 | [진행 중] | [진행 중] | 정상 조도 내 산발적 노이즈 |
+| Folder 1 | 0.8536 | 0.8569 | +0.0033 | 비교적 정상 조도 |
+| Folder 2 | 0.7559 | 0.7655 | +0.0096 | 형태 보존 유지 |
+| Folder 3 | 0.5841 | 0.6817 | +0.0976 | 저조도 동공 팽창 |
+| Folder 4 | 0.3883 | 0.4303 | +0.0420 | 완전한 형태 붕괴 모델링 한계 |
+| Folder 5 | 0.3917 | 0.4179 | +0.0262 | 극단적 조도 변화 |
+| Folder 6 | 0.8068 | 0.8152 | +0.0084 | 정상 조도 내 산발적 노이즈 |
 | Folder 7 | 0.7122 | [진행 중] | [진행 중] | 미세한 오탐지 발생 구간 |
 | Folder 8 | 0.6873 | [진행 중] | [진행 중] | 복합 조명 아티팩트 해소 |
 | Folder 9 | 0.6519 | [진행 중] | [진행 중] | |
 | Folder 10| 0.5528 | [진행 중] | [진행 중] | 강한 글레어 혼입 환경 |
 | Folder 11| 0.5279 | [진행 중] | [진행 중] | 가장 심각한 저조도 팽창 구간 |
-| Folder 12| 0.7547 | [진행 중] | [진행 중] | |
-| Folder 13| 0.5087 | [진행 중] | [진행 중] | 극단적 붕괴 구간 |
-| Folder 14| 0.6986 | [진행 중] | [진행 중] | |
-| Folder 15| 0.5475 | [진행 중] | [진행 중] | |
-| Folder 16| 0.7741 | [진행 중] | [진행 중] | 현상 유지 |
-| Folder 17| 0.7186 | [진행 중] | [진행 중] | 모델 줌아웃 오작동 구역 |
+| Folder 12| 0.7547 | 0.8361 | +0.0814 | |
+| Folder 13| 0.5087 | 0.6947 | +0.1860 | 극단적 붕괴 구간 |
+| Folder 14| 0.6986 | 0.6918 | -0.0068 | |
+| Folder 15| 0.5475 | 0.5485 | +0.0010 | |
+| Folder 16| 0.7741 | 0.7742 | +0.0001 | 현상 유지 |
+| Folder 17| 0.7186 | 0.6273 | -0.0913 | 모델 줌아웃 오작동 구역 |
 | Folder 18| 0.6868 | [진행 중] | [진행 중] | |
 | Folder 19| 0.5232 | [진행 중] | [진행 중] | |
 | Folder 20| 0.7655 | [진행 중] | [진행 중] | |
@@ -135,7 +135,7 @@ FAST-TransUNet의 기여 2 모듈 성능을 입증하기 위해, 약 4시간 동
 | **전체 평균**| **0.6445** | **[진행 중]** | **[진행 중]** | **거대 제로샷 데이터셋의 전역적 상향** |
 
 **[결과 분석]**
-*(LPW 벤치마킹이 완료된 후 작성될 예정입니다. 초기 실험에서 입증된 Folder 11, 13 등 극한 케이스 복원 효과 등을 중심으로 업데이트됩니다.)*
+*(LPW 벤치마킹이 완료된 후 작성될 예정입니다. 중간 평가 결과 Folder 2, 3, 4, 13, 14, 16, 17 등 7개 폴더에서 이전 Best Config 대비 성능 향상을 보였으며, 특히 Folder 13에서 +0.1860 mIoU의 큰 폭 상승을 확인했습니다.)*
 
 ---
 
