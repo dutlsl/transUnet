@@ -119,51 +119,51 @@ This conditional architecture ensures the gate **never fires on clean data**, pr
 | 1 | Vanilla TransUNet (Baseline) | 0.5831 | 0.5260 | Domain gap |
 | 2 | + Hybrid Ellipse only | 0.6113 | **0.6304** | LPW dominant |
 | 3 | + Skip Filter only (σ=1.0) | 0.6937 | 0.5576 | Swirski dominant |
-| 4 | + C1 Full (Skip Filter + Ellipse) | 0.7899 | 0.6445 | C1 synergy |
-| 5 | **GLARIS (C1 + C2 Full)** | **0.7939** | *benchmarking* | **Best overall** 🏆 |
+| 4 | + C1 Full (Skip Filter + Ellipse) | 0.7899 | 0.6442 | C1 synergy |
+| 5 | **GLARIS (C1 + C2 Full)** | **0.7974** | **0.6855** | **Best overall** 🏆 |
 
 ### Per-Case Benchmark (Swirski)
 
 | Case | Baseline | C1 Only | **GLARIS (C1+C2)** | Gate Status |
 |:---|:-:|:-:|:-:|:---|
 | p1-left | 0.6100 | 0.8172 | **0.8172** | Normal — gate off |
-| p1-right | 0.3504 | 0.5629 | **0.5792** | OE gate **active** |
+| p1-right | 0.3504 | 0.5629 | **0.5931** | OE gate **active** |
 | p2-left | 0.6694 | 0.8803 | **0.8803** | Normal — gate off |
 | p2-right | 0.7025 | 0.8990 | **0.8990** | Normal — gate off |
-| **Average** | 0.5831 | 0.7899 | **0.7939** | **+0.2108 over baseline** |
+| **Average** | 0.5831 | 0.7899 | **0.7974** | **+0.2143 over baseline** |
 
 > **Zero-degradation guarantee**: On all 3 normal-lighting cases, the Dual-Gate produces **identical** scores to C1-only, confirming the gate correctly stays closed on clean data.
 
 ### Per-Folder Benchmark (LPW, 22 Folders)
 
 <details>
-<summary>Click to expand full LPW results table (benchmarking in progress)</summary>
+<summary>Click to expand full LPW results table</summary>
 
 | Folder | Baseline | C1 Only | **GLARIS (C1+C2)** | Δ vs C1 |
 |:-:|:-:|:-:|:-:|:-:|
-| 1 | 0.6270 | 0.8536 | 0.8569 | +0.0033 |
-| 2 | 0.6991 | 0.7559 | 0.7655 | +0.0096 |
-| 3 | 0.4319 | 0.5841 | 0.6817 | +0.0976 |
-| 4 | 0.2457 | 0.3883 | 0.4303 | +0.0420 |
-| 5 | 0.3651 | 0.3917 | 0.4179 | +0.0262 |
-| 6 | 0.6394 | 0.8068 | 0.8152 | +0.0084 |
-| 7 | 0.7230 | 0.7122 | — | — |
-| 8 | 0.5280 | 0.6873 | — | — |
-| 9 | 0.4712 | 0.6519 | — | — |
-| 10 | 0.4835 | 0.5528 | — | — |
-| 11 | 0.3763 | 0.5279 | — | — |
-| 12 | 0.6061 | 0.7547 | 0.8361 | +0.0814 |
-| 13 | 0.3687 | 0.5087 | 0.6947 | +0.1860 |
-| 14 | 0.5319 | 0.6986 | 0.6918 | −0.0068 |
-| 15 | 0.3953 | 0.5475 | 0.5485 | +0.0010 |
-| 16 | 0.7239 | 0.7741 | 0.7742 | +0.0001 |
-| 17 | 0.7608 | 0.7186 | 0.6273 | −0.0913 |
-| 18 | 0.5504 | 0.6868 | — | — |
-| 19 | 0.4130 | 0.5232 | — | — |
-| 20 | 0.6112 | 0.7655 | — | — |
-| 21 | 0.5732 | 0.7182 | — | — |
-| 22 | 0.4342 | 0.5561 | — | — |
-| **Avg** | **0.5254** | **0.6445** | *benchmarking* | — |
+| 1 | 0.6270 | 0.8536 | **0.8569** | +0.0033 |
+| 2 | 0.6991 | 0.7655 | **0.7655** | +0.0000 |
+| 3 | 0.4319 | 0.5841 | **0.6817** | +0.0976 |
+| 4 | 0.2457 | 0.3883 | **0.4303** | +0.0420 |
+| 5 | 0.3651 | 0.3917 | **0.4179** | +0.0262 |
+| 6 | 0.6394 | 0.8068 | **0.8152** | +0.0084 |
+| 7 | 0.7230 | 0.7126 | **0.7093** | -0.0033 |
+| 8 | 0.5280 | 0.6870 | **0.7377** | +0.0507 |
+| 9 | 0.4712 | 0.6519 | **0.6539** | +0.0020 |
+| 10 | 0.4835 | 0.5498 | **0.6002** | +0.0504 |
+| 11 | 0.3763 | 0.5285 | **0.6278** | +0.0993 |
+| 12 | 0.6061 | 0.7547 | **0.8361** | +0.0814 |
+| 13 | 0.3687 | 0.5087 | **0.6947** | +0.1860 |
+| 14 | 0.5319 | 0.6986 | **0.6918** | -0.0068 |
+| 15 | 0.3953 | 0.5475 | **0.5485** | +0.0010 |
+| 16 | 0.7239 | 0.7741 | **0.7742** | +0.0001 |
+| 17 | 0.7608 | 0.7184 | **0.6273** | -0.0911 |
+| 18 | 0.5504 | 0.6868 | **0.8047** | +0.1179 |
+| 19 | 0.4130 | 0.5232 | **0.5962** | +0.0730 |
+| 20 | 0.6112 | 0.7655 | **0.8257** | +0.0602 |
+| 21 | 0.5732 | 0.7182 | **0.7582** | +0.0400 |
+| 22 | 0.4342 | 0.5561 | **0.6265** | +0.0704 |
+| **Avg** | **0.5254** | **0.6442** | **0.6855** | **+0.0413** |
 
 </details>
 
@@ -182,7 +182,12 @@ Visual comparison on **Swirski p1-left, Frame 206** (Baseline IoU: 0.4530 → GL
 
 ### LPW — Dual-Gate Light Adapter (C2)
 
-> 🚧 **Coming Soon** — Qualitative comparison on extreme under/overexposure LPW cases will be added after benchmarking completes.
+Visual comparison on **LPW Folder 13, Video 2, Frame 0557** under severe low light / pupil dilation (Baseline IoU: 0.1089 → GLARIS IoU: **0.9585**):
+
+| C1 Only (Baseline) | **GLARIS (C1+C2)** |
+|:-:|:-:|
+| ![C1 Only](docs/images/qualitative_c1_f13_v2_0557.png) | ![GLARIS (C1+C2)](docs/images/qualitative_c2_f13_v2_0557.png) |
+| Fragmented / lost pupil boundary | **Precise pupil fitting via LPF & Zoom-out** |
 
 ---
 
